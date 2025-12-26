@@ -4,12 +4,14 @@ Real-time display of per-process network bandwidth usage
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
-from datetime import datetime
+from tkinter import ttk, messagebox, scrolledtext, filedialog
+from datetime import datetime, timedelta
 import threading
+import os
 
 from config import (GUI_REFRESH_RATE, WINDOW_WIDTH, WINDOW_HEIGHT, 
                     FONT_FAMILY, FONT_SIZE, BANDWIDTH_ALERT_THRESHOLD)
+from report_generator import ReportGenerator
 
 
 class NetworkMonitorGUI:
@@ -17,6 +19,7 @@ class NetworkMonitorGUI:
         self.root = root
         self.packet_capture = packet_capture
         self.database_logger = database_logger
+        self.report_generator = ReportGenerator(database_logger)
         self.monitoring = False
         self.session_id = None
         self.alert_threshold = BANDWIDTH_ALERT_THRESHOLD * 1024  # Convert to bytes
@@ -93,6 +96,18 @@ class NetworkMonitorGUI:
             width=12
         )
         report_btn.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # Custom Report Button
+        custom_report_btn = tk.Button(
+            control_frame, 
+            text="Generate Report", 
+            command=self.show_custom_report_dialog,
+            font=(FONT_FAMILY, FONT_SIZE),
+            width=15,
+            bg="#4CAF50",
+            fg="white"
+        )
+        custom_report_btn.pack(side=tk.LEFT, padx=5, pady=5)
         
         # Show All Processes Button
         show_all_btn = tk.Button(
@@ -487,3 +502,168 @@ class NetworkMonitorGUI:
             tk.Label(proc_window, text="No network processes found\n"
                                        "Try running as sudo or starting monitoring",
                     font=(FONT_FAMILY, 12)).pack(pady=20)
+    
+    def show_custom_report_dialog(self):
+        """Show dialog to generate custom report with date range"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Generate Custom Report")
+        dialog.geometry("500x350")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Title
+        title_label = tk.Label(
+            dialog,
+            text="Generate Network Traffic Report",
+            font=(FONT_FAMILY, 14, "bold")
+        )
+        title_label.pack(pady=10)
+        
+        # Date range frame
+        date_frame = tk.LabelFrame(dialog, text="Date Range", font=(FONT_FAMILY, FONT_SIZE))
+        date_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        # Start date
+        tk.Label(date_frame, text="Start Date (YYYY-MM-DD):", font=(FONT_FAMILY, FONT_SIZE)).grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        start_date_var = tk.StringVar(value=(datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"))
+        start_date_entry = tk.Entry(date_frame, textvariable=start_date_var, width=20, font=(FONT_FAMILY, FONT_SIZE))
+        start_date_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        # Start time
+        tk.Label(date_frame, text="Start Time (HH:MM):", font=(FONT_FAMILY, FONT_SIZE)).grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        start_time_var = tk.StringVar(value="00:00")
+        start_time_entry = tk.Entry(date_frame, textvariable=start_time_var, width=20, font=(FONT_FAMILY, FONT_SIZE))
+        start_time_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        # End date
+        tk.Label(date_frame, text="End Date (YYYY-MM-DD):", font=(FONT_FAMILY, FONT_SIZE)).grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        end_date_var = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
+        end_date_entry = tk.Entry(date_frame, textvariable=end_date_var, width=20, font=(FONT_FAMILY, FONT_SIZE))
+        end_date_entry.grid(row=2, column=1, padx=5, pady=5)
+        
+        # End time
+        tk.Label(date_frame, text="End Time (HH:MM):", font=(FONT_FAMILY, FONT_SIZE)).grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+        end_time_var = tk.StringVar(value="23:59")
+        end_time_entry = tk.Entry(date_frame, textvariable=end_time_var, width=20, font=(FONT_FAMILY, FONT_SIZE))
+        end_time_entry.grid(row=3, column=1, padx=5, pady=5)
+        
+        # Quick date buttons
+        quick_frame = tk.Frame(dialog)
+        quick_frame.pack(pady=5)
+        
+        tk.Label(quick_frame, text="Quick Select:", font=(FONT_FAMILY, FONT_SIZE)).pack(side=tk.LEFT, padx=5)
+        
+        def set_today():
+            today = datetime.now().strftime("%Y-%m-%d")
+            start_date_var.set(today)
+            end_date_var.set(today)
+            start_time_var.set("00:00")
+            end_time_var.set("23:59")
+        
+        def set_last_7_days():
+            start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            end = datetime.now().strftime("%Y-%m-%d")
+            start_date_var.set(start)
+            end_date_var.set(end)
+            start_time_var.set("00:00")
+            end_time_var.set("23:59")
+        
+        def set_last_30_days():
+            start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            end = datetime.now().strftime("%Y-%m-%d")
+            start_date_var.set(start)
+            end_date_var.set(end)
+            start_time_var.set("00:00")
+            end_time_var.set("23:59")
+        
+        tk.Button(quick_frame, text="Today", command=set_today, width=8).pack(side=tk.LEFT, padx=2)
+        tk.Button(quick_frame, text="Last 7 Days", command=set_last_7_days, width=10).pack(side=tk.LEFT, padx=2)
+        tk.Button(quick_frame, text="Last 30 Days", command=set_last_30_days, width=10).pack(side=tk.LEFT, padx=2)
+        
+        # Format selection
+        format_frame = tk.LabelFrame(dialog, text="Output Format", font=(FONT_FAMILY, FONT_SIZE))
+        format_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        format_var = tk.StringVar(value="both")
+        tk.Radiobutton(format_frame, text="Markdown (.md)", variable=format_var, value="md", font=(FONT_FAMILY, FONT_SIZE)).pack(anchor=tk.W, padx=10)
+        tk.Radiobutton(format_frame, text="Word Document (.docx)", variable=format_var, value="docx", font=(FONT_FAMILY, FONT_SIZE)).pack(anchor=tk.W, padx=10)
+        tk.Radiobutton(format_frame, text="Both Formats", variable=format_var, value="both", font=(FONT_FAMILY, FONT_SIZE)).pack(anchor=tk.W, padx=10)
+        
+        # Generate button
+        def generate_report():
+            try:
+                # Parse dates
+                start_date_str = f"{start_date_var.get()} {start_time_var.get()}:00"
+                end_date_str = f"{end_date_var.get()} {end_time_var.get()}:59"
+                
+                start_date = datetime.strptime(start_date_str, "%Y-%m-%d %H:%M:%S")
+                end_date = datetime.strptime(end_date_str, "%Y-%m-%d %H:%M:%S")
+                
+                if start_date >= end_date:
+                    messagebox.showerror("Invalid Date Range", "Start date must be before end date!")
+                    return
+                
+                # Ask for output directory
+                output_dir = filedialog.askdirectory(title="Select Output Directory")
+                if not output_dir:
+                    return
+                
+                format_choice = format_var.get()
+                base_filename = f"network_report_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}"
+                
+                success_files = []
+                
+                # Generate Markdown
+                if format_choice in ["md", "both"]:
+                    md_file = os.path.join(output_dir, f"{base_filename}.md")
+                    success, result = self.report_generator.generate_markdown_report(
+                        start_date, end_date, md_file
+                    )
+                    if success:
+                        success_files.append(result)
+                    else:
+                        messagebox.showerror("Error", f"Failed to generate Markdown: {result}")
+                
+                # Generate Word
+                if format_choice in ["docx", "both"]:
+                    docx_file = os.path.join(output_dir, f"{base_filename}.docx")
+                    success, result = self.report_generator.generate_word_report(
+                        start_date, end_date, docx_file
+                    )
+                    if success:
+                        success_files.append(result)
+                    else:
+                        messagebox.showerror("Error", f"Failed to generate Word: {result}")
+                
+                if success_files:
+                    dialog.destroy()
+                    msg = "Report(s) generated successfully:\n\n"
+                    for f in success_files:
+                        msg += f"- {f}\n"
+                    messagebox.showinfo("Success", msg)
+                    
+            except ValueError as e:
+                messagebox.showerror("Invalid Date", f"Please enter valid dates in YYYY-MM-DD format\n\n{e}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to generate report: {e}")
+        
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(pady=10)
+        
+        tk.Button(
+            button_frame,
+            text="Generate Report",
+            command=generate_report,
+            font=(FONT_FAMILY, FONT_SIZE, "bold"),
+            bg="#4CAF50",
+            fg="white",
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            button_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            font=(FONT_FAMILY, FONT_SIZE),
+            width=10
+        ).pack(side=tk.LEFT, padx=5)

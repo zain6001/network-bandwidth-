@@ -224,6 +224,99 @@ class DatabaseLogger:
                 print(f"Alert retrieval error: {e}")
                 return []
     
+    def get_alerts_by_date_range(self, start_date, end_date):
+        """Get alerts within date range for report"""
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_file)
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT timestamp, pid, process_name, alert_type, 
+                           bandwidth_value, threshold
+                    FROM alerts
+                    WHERE timestamp BETWEEN ? AND ?
+                    ORDER BY timestamp DESC
+                ''', (start_date, end_date))
+                
+                results = cursor.fetchall()
+                conn.close()
+                return results
+            except Exception as e:
+                print(f"Alert retrieval error: {e}")
+                return []
+    
+    def get_detailed_report_data(self, start_date, end_date):
+        """Get detailed data for report generation"""
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_file)
+                cursor = conn.cursor()
+                
+                # Get overall statistics
+                cursor.execute('''
+                    SELECT 
+                        COUNT(DISTINCT pid) as unique_processes,
+                        SUM(upload_bytes) as total_upload,
+                        SUM(download_bytes) as total_download,
+                        AVG(upload_rate) as avg_upload_rate,
+                        AVG(download_rate) as avg_download_rate,
+                        MAX(upload_rate) as max_upload_rate,
+                        MAX(download_rate) as max_download_rate
+                    FROM traffic_log
+                    WHERE timestamp BETWEEN ? AND ?
+                ''', (start_date, end_date))
+                
+                overall_stats = cursor.fetchone()
+                
+                # Get per-process statistics
+                cursor.execute('''
+                    SELECT 
+                        pid, 
+                        process_name,
+                        SUM(upload_bytes) as total_upload,
+                        SUM(download_bytes) as total_download,
+                        AVG(upload_rate) as avg_upload_rate,
+                        AVG(download_rate) as avg_download_rate,
+                        MAX(upload_rate) as max_upload_rate,
+                        MAX(download_rate) as max_download_rate,
+                        COUNT(*) as records,
+                        protocols
+                    FROM traffic_log
+                    WHERE timestamp BETWEEN ? AND ?
+                    GROUP BY pid, process_name
+                    ORDER BY (SUM(upload_bytes) + SUM(download_bytes)) DESC
+                ''', (start_date, end_date))
+                
+                process_stats = cursor.fetchall()
+                
+                conn.close()
+                return overall_stats, process_stats
+            except Exception as e:
+                print(f"Detailed report error: {e}")
+                return None, []
+    
+    def get_sessions_in_range(self, start_date, end_date):
+        """Get monitoring sessions within date range"""
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_file)
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT id, start_time, end_time, total_upload, total_download
+                    FROM sessions
+                    WHERE start_time BETWEEN ? AND ?
+                    ORDER BY start_time DESC
+                ''', (start_date, end_date))
+                
+                results = cursor.fetchall()
+                conn.close()
+                return results
+            except Exception as e:
+                print(f"Session retrieval error: {e}")
+                return []
+    
     def cleanup_old_data(self, days=30):
         """Delete data older than specified days"""
         with self.lock:
